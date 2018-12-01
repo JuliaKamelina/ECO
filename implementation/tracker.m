@@ -232,7 +232,7 @@ latest_ind = [];
 frames_since_last_train = inf;
 num_training_samples = 0;
 
-% Find the minimum allowed sample weight. Samples are discarded if their weights become lower 
+% Find the minimum allowed sample weight. Samples are discarded if their weights become lower
 params.minimum_sample_weight = params.learning_rate*(1-params.learning_rate)^(2*params.nSamples);
 
 res_norms = [];
@@ -253,17 +253,17 @@ while true
     end
 
     tic();
-    
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% Target localization step
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    
-    % Do not estimate translation and scaling on the first frame, since we 
+
+    % Do not estimate translation and scaling on the first frame, since we
     % just want to initialize the tracker there
     if seq.frame > 1
         old_pos = inf(size(pos));
         iter = 1;
-        
+
         %translation search
         while iter <= params.refinement_iterations && any(old_pos ~= pos)
             % Extract features at multiple resolutions
@@ -271,19 +271,19 @@ while true
             det_sample_pos = sample_pos;
             sample_scale = currentScaleFactor*scaleFactors;
             xt = extract_features(im, sample_pos, sample_scale, features, global_fparams, feature_extract_info);
-                        
+
             % Project sample
             xt_proj = project_sample(xt, projection_matrix);
-            
+
             % Do windowing of features
             xt_proj = cellfun(@(feat_map, cos_window) bsxfun(@times, feat_map, cos_window), xt_proj, cos_window, 'uniformoutput', false);
-            
+
             % Compute the fourier series
             xtf_proj = cellfun(@cfft2, xt_proj, 'uniformoutput', false);
-            
+
             % Interpolate features to the continuous domain
             xtf_proj = interpolate_dft(xtf_proj, interp1_fs, interp2_fs);
-            
+
             % Compute convolution for each feature block in the Fourier domain
             % and the sum over all blocks.
             scores_fs_feat{k1} = sum(bsxfun(@times, hf_full{k1}, xtf_proj{k1}), 3);
@@ -294,80 +294,80 @@ while true
                     scores_fs_sum(1+pad_sz{k}(1):end-pad_sz{k}(1), 1+pad_sz{k}(2):end-pad_sz{k}(2),1,:) + ...
                     scores_fs_feat{k};
             end
-            
+
             % Also sum over all feature blocks.
             % Gives the fourier coefficients of the convolution response.
             scores_fs = permute(gather(scores_fs_sum), [1 2 4 3]);
-            
+
             % Optimize the continuous score function with Newton's method.
             [trans_row, trans_col, scale_ind] = optimize_scores(scores_fs, params.newton_iterations);
-            
+
             % Compute the translation vector in pixel-coordinates and round
             % to the closest integer pixel.
             translation_vec = [trans_row, trans_col] .* (img_support_sz./output_sz) * currentScaleFactor * scaleFactors(scale_ind);
             scale_change_factor = scaleFactors(scale_ind);
-            
+
             % update position
             old_pos = pos;
             pos = sample_pos + translation_vec;
-            
+
             if params.clamp_position
                 pos = max([1 1], min([size(im,1) size(im,2)], pos));
             end
-            
+
             % Do scale tracking with the scale filter
             if nScales > 0 && params.use_scale_filter
                 scale_change_factor = scale_filter_track(im, pos, base_target_sz, currentScaleFactor, scale_filter, params);
-            end 
-            
+            end
+
             % Update the scale
             currentScaleFactor = currentScaleFactor * scale_change_factor;
-            
+
             % Adjust to make sure we are not to large or to small
             if currentScaleFactor < min_scale_factor
                 currentScaleFactor = min_scale_factor;
             elseif currentScaleFactor > max_scale_factor
                 currentScaleFactor = max_scale_factor;
             end
-            
+
             iter = iter + 1;
         end
     end
-    
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% Model update step
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    
+
     % Extract sample and init projection matrix
     if seq.frame == 1
         % Extract image region for training sample
         sample_pos = round(pos);
         sample_scale = currentScaleFactor;
         xl = extract_features(im, sample_pos, currentScaleFactor, features, global_fparams, feature_extract_info);
-        
+
         % Do windowing of features
         xlw = cellfun(@(feat_map, cos_window) bsxfun(@times, feat_map, cos_window), xl, cos_window, 'uniformoutput', false);
-        
+
         % Compute the fourier series
         xlf = cellfun(@cfft2, xlw, 'uniformoutput', false);
-        
+
         % Interpolate features to the continuous domain
         xlf = interpolate_dft(xlf, interp1_fs, interp2_fs);
-        
+
         % New sample to be added
         xlf = compact_fourier_coeff(xlf);
-        
+
         % Shift sample
         shift_samp = 2*pi * (pos - sample_pos) ./ (sample_scale * img_support_sz);
         xlf = shift_sample(xlf, shift_samp, kx, ky);
-        
+
         % Init the projection matrix
         projection_matrix = init_projection_matrix(xl, sample_dim, params);
-        
+
         % Project sample
         xlf_proj = project_sample(xlf, projection_matrix);
-        
+
         clear xlw
     elseif params.learning_rate > 0
         if ~params.use_detection_sample
@@ -375,19 +375,19 @@ while true
             sample_pos = round(pos);
             sample_scale = currentScaleFactor;
             xl = extract_features(im, sample_pos, currentScaleFactor, features, global_fparams, feature_extract_info);
-            
+
             % Project sample
             xl_proj = project_sample(xl, projection_matrix);
-            
+
             % Do windowing of features
             xl_proj = cellfun(@(feat_map, cos_window) bsxfun(@times, feat_map, cos_window), xl_proj, cos_window, 'uniformoutput', false);
-            
+
             % Compute the fourier series
             xlf1_proj = cellfun(@cfft2, xl_proj, 'uniformoutput', false);
-            
+
             % Interpolate features to the continuous domain
             xlf1_proj = interpolate_dft(xlf1_proj, interp1_fs, interp2_fs);
-            
+
             % New sample to be added
             xlf_proj = compact_fourier_coeff(xlf1_proj);
         else
@@ -395,22 +395,22 @@ while true
                 % Only for visualization
                 xl = cellfun(@(xt) xt(:,:,:,scale_ind), xt, 'uniformoutput', false);
             end
-            
+
             % Use the sample that was used for detection
             sample_scale = sample_scale(scale_ind);
             xlf_proj = cellfun(@(xf) xf(:,1:(size(xf,2)+1)/2,:,scale_ind), xtf_proj, 'uniformoutput', false);
         end
-        
+
         % Shift the sample so that the target is centered
         shift_samp = 2*pi * (pos - sample_pos) ./ (sample_scale * img_support_sz);
         xlf_proj = shift_sample(xlf_proj, shift_samp, kx, ky);
     end
-    
+
     % The permuted sample is only needed for the CPU implementation
     if ~params.use_gpu
         xlf_proj_perm = cellfun(@(xf) permute(xf, [4 3 1 2]), xlf_proj, 'uniformoutput', false);
     end
-        
+
     if params.use_sample_merge
         % Update the samplesf to include the new sample. The distance
         % matrix, kernel matrix and prior weight are also updated
@@ -423,7 +423,7 @@ while true
                 update_sample_space_model(samplesf, xlf_proj_perm, distance_matrix, gram_matrix, prior_weights,...
                 num_training_samples,params);
         end
-        
+
         if num_training_samples < params.nSamples
             num_training_samples = num_training_samples + 1;
         end
@@ -432,7 +432,7 @@ while true
         % of C-COT
         [prior_weights, replace_ind] = update_prior_weights(prior_weights, gather(sample_weights), latest_ind, seq.frame, params);
         latest_ind = replace_ind;
-        
+
         merged_sample_id = 0;
         new_sample_id = replace_ind;
         if params.use_gpu
@@ -441,7 +441,7 @@ while true
             new_sample = xlf_proj_perm;
         end
     end
-    
+
     if seq.frame > 1 && params.learning_rate > 0 || seq.frame == 1 && ~params.update_projection_matrix
         % Insert the new training sample
         for k = 1:num_feature_blocks
@@ -464,50 +464,50 @@ while true
     end
 
     sample_weights = cast(prior_weights, 'like', params.data_type);
-           
+
     train_tracker = (seq.frame < params.skip_after_frame) || (frames_since_last_train >= params.train_gap);
-    
-    if train_tracker     
+
+    if train_tracker
         % Used for preconditioning
         new_sample_energy = cellfun(@(xlf) abs(xlf .* conj(xlf)), xlf_proj, 'uniformoutput', false);
-        
+
         if seq.frame == 1
             % Initialize stuff for the filter learning
-            
+
             % Initialize Conjugate Gradient parameters
             sample_energy = new_sample_energy;
             CG_state = [];
-            
+
             if params.update_projection_matrix
-                % Number of CG iterations per GN iteration 
+                % Number of CG iterations per GN iteration
                 init_CG_opts.maxit = ceil(params.init_CG_iter / params.init_GN_iter);
-            
+
                 hf = cell(2,1,num_feature_blocks);
                 proj_energy = cellfun(@(P, yf) 2*sum(abs(yf(:)).^2) / sum(feature_dim) * ones(size(P), 'like', params.data_type), projection_matrix, yf, 'uniformoutput', false);
             else
                 CG_opts.maxit = params.init_CG_iter; % Number of initial iterations if projection matrix is not updated
-            
+
                 hf = cell(1,1,num_feature_blocks);
             end
-            
+
             % Initialize the filter with zeros
             for k = 1:num_feature_blocks
                 hf{1,1,k} = zeros([filter_sz(k,1) (filter_sz(k,2)+1)/2 sample_dim(k)], 'like', params.data_type_complex);
             end
         else
             CG_opts.maxit = params.CG_iter;
-            
+
             % Update the approximate average sample energy using the learning
             % rate. This is only used to construct the preconditioner.
             sample_energy = cellfun(@(se, nse) (1 - params.learning_rate) * se + params.learning_rate * nse, sample_energy, new_sample_energy, 'uniformoutput', false);
         end
-        
+
         % Do training
         if seq.frame == 1 && params.update_projection_matrix
             if params.debug
                 projection_matrix_init = projection_matrix;
             end
-            
+
             % Initial Gauss-Newton optimization of the filter and
             % projection matrix.
             if params.use_gpu
@@ -515,7 +515,7 @@ while true
             else
                 [hf, projection_matrix, res_norms] = train_joint(hf, projection_matrix, xlf, yf, reg_filter, sample_energy, reg_energy, proj_energy, params, init_CG_opts);
             end
-            
+
             % Re-project and insert training sample
             xlf_proj = project_sample(xlf, projection_matrix);
             for k = 1:num_feature_blocks
@@ -525,19 +525,19 @@ while true
                     samplesf{k}(1,:,:,:) = permute(xlf_proj{k}, [4 3 1 2]);
                 end
             end
-            
+
             % Update the gram matrix since the sample has changed
             if strcmp(params.distance_matrix_update_type, 'exact')
                 % Find the norm of the reprojected sample
                 new_train_sample_norm =  0;
-                
+
                 for k = 1:num_feature_blocks
                     new_train_sample_norm = new_train_sample_norm + real(gather(2*(xlf_proj{k}(:)' * xlf_proj{k}(:))));% - reshape(xlf_proj{k}(:,end,:,:), [], 1, 1)' * reshape(xlf_proj{k}(:,end,:,:), [], 1, 1));
                 end
-                
+
                 gram_matrix(1,1) = new_train_sample_norm;
             end
-            
+
             if params.debug
                 norm_proj_mat_init = sqrt(sum(cellfun(@(P) gather(norm(P(:))^2), projection_matrix_init)));
                 norm_proj_mat = sqrt(sum(cellfun(@(P) gather(norm(P(:))^2), projection_matrix)));
@@ -552,34 +552,34 @@ while true
                 [hf, res_norms, CG_state] = train_filter(hf, samplesf, yf, reg_filter, sample_weights, sample_energy, reg_energy, params, CG_opts, CG_state);
             end
         end
-        
+
         % Reconstruct the full Fourier series
         hf_full = full_fourier_coeff(hf);
-        
+
         frames_since_last_train = 0;
     else
         frames_since_last_train = frames_since_last_train+1;
     end
-    
+
     % Update the scale filter
     if nScales > 0 && params.use_scale_filter
         scale_filter = scale_filter_update(im, pos, base_target_sz, currentScaleFactor, scale_filter, params);
     end
-    
+
     % Update the target size (only used for computing output box)
     target_sz = base_target_sz * currentScaleFactor;
-    
+
     %save position and calculate FPS
     tracking_result.center_pos = double(pos);
     tracking_result.target_size = double(target_sz);
     seq = report_tracking_result(seq, tracking_result);
-    
+
     seq.time = seq.time + toc();
-    
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% Visualization
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    
+
     % debug visualization
     if params.debug
         figure(20)
@@ -588,11 +588,11 @@ while true
         subplot_rows = 3;%ceil(feature_dim/subplot_cols);
         for disp_layer = 1:num_feature_blocks;
             subplot(subplot_rows,subplot_cols,disp_layer);
-            imagesc(mean(abs(sample_fs(conj(hf_full{disp_layer}))), 3)); 
+            imagesc(mean(abs(sample_fs(conj(hf_full{disp_layer}))), 3));
             colorbar;
             axis image;
             subplot(subplot_rows,subplot_cols,disp_layer+subplot_cols);
-            imagesc(mean(abs(xl{disp_layer}), 3)); 
+            imagesc(mean(abs(xl{disp_layer}), 3));
             colorbar;
             axis image;
             if seq.frame > 1
@@ -602,7 +602,7 @@ while true
                 axis image;
             end
         end
-        
+
         if train_tracker
             residuals_pcg = [residuals_pcg; res_norms];
             res_start_ind = max(1, length(residuals_pcg)-300);
@@ -610,7 +610,7 @@ while true
             axis([res_start_ind, length(residuals_pcg), 0, min(max(residuals_pcg(res_start_ind:end)), 0.2)]);
         end
     end
-    
+
     % visualization
     if params.visualization
         rect_position_vis = [pos([2,1]) - (target_sz([2,1]) - 1)/2, target_sz([2,1])];
@@ -627,7 +627,7 @@ while true
             text(10, 10, int2str(seq.frame), 'color', [0 1 1]);
             hold off;
             axis off;axis image;set(gca, 'Units', 'normalized', 'Position', [0 0 1 1])
-            
+
 %             output_name = 'Video_name';
 %             opengl software;
 %             writer = VideoWriter(output_name, 'MPEG-4');
@@ -638,11 +638,11 @@ while true
             resp_sz = round(img_support_sz*currentScaleFactor*scaleFactors(scale_ind));
             xs = floor(det_sample_pos(2)) + (1:resp_sz(2)) - floor(resp_sz(2)/2);
             ys = floor(det_sample_pos(1)) + (1:resp_sz(1)) - floor(resp_sz(1)/2);
-            
+
             % To visualize the continuous scores, sample them 10 times more
-            % dense than output_sz. 
+            % dense than output_sz.
             sampled_scores_display = fftshift(sample_fs(scores_fs(:,:,scale_ind), 10*output_sz));
-            
+
             figure(fig_handle);
 %                 set(fig_handle, 'Position', [100, 100, 100+size(im,2), 100+size(im,1)]);
             imagesc(im_to_show);
@@ -652,10 +652,10 @@ while true
             rectangle('Position',rect_position_vis, 'EdgeColor','g', 'LineWidth',2);
             text(10, 10, int2str(seq.frame), 'color', [0 1 1]);
             hold off;
-            
+
 %                 axis off;axis image;set(gca, 'Units', 'normalized', 'Position', [0 0 1 1])
         end
-        
+
         drawnow
 %         if frame > 1
 %             if frame < inf
@@ -673,4 +673,3 @@ end
 [seq, results] = get_sequence_results(seq);
 
 disp(['fps: ' num2str(results.fps)])
-

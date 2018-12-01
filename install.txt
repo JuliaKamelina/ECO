@@ -1,0 +1,5 @@
+for matconvnet
+dependency sudo apt-get install build-essential libjpeg-turbo8-dev
+install in first from command line,
+install gcc 4.9.0
+run install.m
